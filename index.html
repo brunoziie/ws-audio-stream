@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Socket.io Audio Broadcast</title>
+    <script src="/socket.io/socket.io.js"></script>
+  </head>
+  <body>
+    <h1>Socket.io Audio Broadcast</h1>
+    <!-- Add any necessary UI elements here -->
+
+    <button id="rec">Rec</button>
+    <button type="button">Nothing</button>
+
+    <script>
+      const socket = io(undefined, { transports: ["websocket"] });
+      const ctx = new AudioContext();
+
+      const audioBuffers = [];
+
+      document.querySelector("#rec").addEventListener("click", function (e) {
+        e.preventDefault();
+
+        // Get access to the microphone and start audio streaming
+        navigator.mediaDevices
+          .getUserMedia({ audio: true })
+          .then((stream) => {
+            const audioContext = new AudioContext();
+            const mediaStreamSource =
+              audioContext.createMediaStreamSource(stream);
+            const audioProcessor = audioContext.createScriptProcessor(0, 1, 1);
+
+            // Process audio data
+            audioProcessor.addEventListener("audioprocess", (event) => {
+              const inputBuffer = event.inputBuffer;
+              const audioData = inputBuffer.getChannelData(0);
+              socket.emit("audio stream", audioData); // Emit the audio data as a stream
+            });
+
+            // Connect audio nodes
+            mediaStreamSource.connect(audioProcessor);
+            audioProcessor.connect(audioContext.destination);
+          })
+          .catch((error) => {
+            console.error("Error accessing microphone:", error);
+          });
+      });
+
+      const process = (audioStream) => {
+        audioBuffers.push(audioStream);
+
+        if (audioBuffers.length) {
+          playNextAudio();
+        }
+      };
+
+      function playNextAudio() {
+        // If there are no more audio buffers in the queue, stop playing
+        if (audioBuffers.length === 0) {
+          return;
+        }
+
+        const chuck = audioBuffers.shift();
+        const floats = new Float32Array(chuck);
+
+        const buffer = ctx.createBuffer(1, floats.length, 48000);
+        buffer.getChannelData(0).set(floats);
+
+        const source = ctx.createBufferSource();
+        source.buffer = buffer;
+        source.connect(ctx.destination);
+        source.onended = () => playNextAudio();
+        source.start();
+      }
+
+      // Handle incoming audio streams
+      socket.on("audio stream", (data) => {
+        process(data);
+      });
+    </script>
+  </body>
+</html>
